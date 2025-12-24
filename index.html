@@ -114,6 +114,7 @@
             pointer-events: none;
             z-index: 50;
             transition: opacity 0.4s ease;
+            /* Will be shown when camera is available */
         }
 
         #webcam {
@@ -184,18 +185,22 @@
         <h1>Merry Christmas</h1>
     </div>
 
-    <div id="webcam-wrapper">
+    <div id="webcam-wrapper" style="display: none;">
         <video id="webcam" autoplay playsinline></video>
         <div id="debug-info">Initializing...</div>
     </div>
 
     <div id="gesture-guide">
-        <h3>Hand Gestures</h3>
+        <h3>Controls</h3>
+        <p><b>Mouse:</b></p>
+        <p>Click + Drag: Rotate view</p>
+        <p>1-4: Change modes</p>
+        <p><b>Hand Gestures:</b></p>
         <p>✊ Fist: Tree mode</p>
-        <p>✋ Open hand: Scatter photos</p>
-        <p>🤏 Pinch: Focus photo</p>
-        <p>🤟 C-shape: Heart effect</p>
-        <p>Press H to hide UI</p>
+        <p>✋ Open: Scatter</p>
+        <p>🤏 Pinch: Focus</p>
+        <p>🤟 C-shape: Heart</p>
+        <p>H: Hide UI</p>
     </div>
 
     <script type="module">
@@ -245,6 +250,11 @@
         let heartParticles = [];
         const debugInfo = document.getElementById('debug-info');
 
+        // Mouse control variables
+        let isDragging = false;
+        let previousMouseX = 0;
+        let previousMouseY = 0;
+
         async function init() {
             initThree();
             setupEnvironment();
@@ -257,6 +267,7 @@
             loadImages();
             setupPostProcessing();
             setupEvents();
+            setupMouseControls();
             await initMediaPipe();
 
             const loader = document.getElementById('loader');
@@ -742,12 +753,17 @@
                     const stream = await navigator.mediaDevices.getUserMedia(constraints);
                     video.srcObject = stream;
                     video.addEventListener("loadeddata", predictWebcam);
+                    // Show webcam wrapper when camera is available
+                    document.getElementById('webcam-wrapper').style.display = 'block';
                     debugInfo.innerText = "Webcam active. Show hand.";
                 } catch (e) {
                     console.warn("Webcam access denied or not available", e);
-                    debugInfo.innerText = "Camera error: " + e.message;
+                    debugInfo.innerText = "Mouse mode only";
                     document.getElementById('webcam-wrapper').style.display = 'none';
                 }
+            } else {
+                // No camera API available
+                document.getElementById('webcam-wrapper').style.display = 'none';
             }
         }
 
@@ -828,6 +844,38 @@
             }
         }
 
+        function setupMouseControls() {
+            const canvas = renderer.domElement;
+
+            canvas.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                previousMouseX = e.clientX;
+                previousMouseY = e.clientY;
+                STATE.hand.detected = true;
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    const deltaX = e.clientX - previousMouseX;
+                    const deltaY = e.clientY - previousMouseY;
+
+                    STATE.hand.x = (e.clientX / window.innerWidth - 0.5) * 2;
+                    STATE.hand.y = (e.clientY / window.innerHeight - 0.5) * 2;
+
+                    previousMouseX = e.clientX;
+                    previousMouseY = e.clientY;
+                }
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+
+            canvas.addEventListener('mouseleave', () => {
+                isDragging = false;
+            });
+        }
+
         function setupEvents() {
             window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth / window.innerHeight;
@@ -837,10 +885,40 @@
             });
 
             window.addEventListener('keydown', (e) => {
-                if (e.key.toLowerCase() === 'h') {
+                const key = e.key.toLowerCase();
+
+                if (key === 'h') {
                     document.getElementById('webcam-wrapper')?.classList.toggle('ui-hidden');
                     document.getElementById('gesture-guide')?.classList.toggle('ui-hidden');
                     document.getElementById('ui-layer')?.classList.toggle('ui-hidden');
+                }
+
+                // Keyboard controls for modes
+                if (key === '1') {
+                    STATE.mode = 'TREE';
+                    STATE.focusTarget = null;
+                    STATE.heartDetected = false;
+                    debugInfo.innerText = 'Mode: TREE';
+                }
+                if (key === '2') {
+                    STATE.mode = 'SCATTER';
+                    STATE.focusTarget = null;
+                    STATE.heartDetected = false;
+                    debugInfo.innerText = 'Mode: SCATTER';
+                }
+                if (key === '3') {
+                    STATE.mode = 'FOCUS';
+                    STATE.heartDetected = false;
+                    const photos = particleSystem.filter(p => p.type === 'PHOTO');
+                    if (photos.length) {
+                        const randomIndex = Math.floor(Math.random() * photos.length);
+                        STATE.focusTarget = photos[randomIndex].mesh;
+                    }
+                    debugInfo.innerText = 'Mode: FOCUS';
+                }
+                if (key === '4') {
+                    STATE.heartDetected = !STATE.heartDetected;
+                    debugInfo.innerText = STATE.heartDetected ? 'Heart Effect ON' : 'Heart Effect OFF';
                 }
             });
         }
